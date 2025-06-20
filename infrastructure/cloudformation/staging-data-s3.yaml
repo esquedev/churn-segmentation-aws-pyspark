@@ -1,0 +1,4 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the Raw Data S3 Bucket for the PySpark Data Pipeline.
+  This bucket is designed for ingesting raw, immutable data.
