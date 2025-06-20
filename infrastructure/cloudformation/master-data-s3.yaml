@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the Master Data S3 Bucket for the Churn Segmentation Data 
+  Pipeline. This bucket stores static reference data, lookup tables, or dimensions.
+
+Metadata:
+  Project: ChurnSegmentationPySpark
+  Component: MasterDataBucket
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the project, used for resource naming.
+    Default: churn-segmentation
+
+  Environment:
+    Type: String
+    Description: Environment (e.g., dev, test, prod).
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  BucketNameSuffix:
+    Type: String
+    Description: >
+      A unique suffix for the S3 bucket name. This helps ensure global uniqueness.
+      e.g., YourProjectName-Environment-master-[suffix]
+    Default: !Select [2, !Split ['-', !Select [0, !Split ['/', !Ref "AWS::StackId"]]]]
+
+Resources:
+  MasterDataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain # IMPORTANT: Retain the bucket for critical reference data
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-master-${BucketNameSuffix}"
+      VersioningConfiguration:
+        Status: Enabled # Recommended to track changes and rollbacks for master data
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256 # Always encrypt at rest
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: Master
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  MasterDataBucketName:
+    Description: The name of the S3 bucket for master data.
+    Value: !Ref MasterDataBucket
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-MasterDataBucketName"
+
+  MasterDataBucketArn:
+    Description: The ARN of the S3 bucket for master data.
+    Value: !GetAtt MasterDataBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-MasterDataBucketArn"

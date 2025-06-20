@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the dedicated Raw Data S3 Bucket for the Churn Segmentation Data
+  Pipeline. This bucket is designed for immutable ingestion of raw, untransformed source data.
+
+Metadata:
+  Project: ChurnSegmentationPySpark
+  Component: RawDataBucket
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the project, used for resource naming.
+    Default: churn-segmentation
+
+  Environment:
+    Type: String
+    Description: Environment (e.g., dev, test, prod).
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  BucketNameSuffix:
+    Type: String
+    Description: >
+      A unique suffix for the S3 bucket name. This helps ensure global uniqueness.
+      e.g., YourProjectName-Environment-raw-[suffix]
+    Default: !Select [2, !Split ['-', !Select [0, !Split ['/', !Ref "AWS::StackId"]]]]
+
+Resources:
+  RawDataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain # CRITICAL: Retain the bucket on stack deletion to prevent data loss
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-raw-${BucketNameSuffix}"
+      VersioningConfiguration:
+        Status: Enabled # Highly recommended for raw data to maintain history and recover from accidental deletion/overwrites
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256 # Always encrypt data at rest
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: Raw
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  RawDataBucketName:
+    Description: The name of the S3 bucket for raw, immutable data.
+    Value: !Ref RawDataBucket
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-RawDataBucketName"
+
+  RawDataBucketArn:
+    Description: The ARN of the S3 bucket for raw, immutable data.
+    Value: !GetAtt RawDataBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-RawDataBucketArn"
