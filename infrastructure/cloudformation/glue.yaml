@@ -1,0 +1,46 @@
+AWSTemplateFormateVersion: '2010-09-09'
+Description: >
+  Cloud Formation template for the AWS Glue Data Catalog Database for the Churn
+  Segmentation Data Pipeline.
+
+Metadata:
+  Project: ChurnSegmentationPySpark
+  Component: GlueDataCatalog
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the project, used for resource naming.
+    Default: churn-segmentation
+
+  Environment:
+    Type: String
+    Description: Environment (e.g., dev, test, prod).
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+Resources:
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref "AWS::AccountId"
+      DatabaseInput:
+        Name : !Sub "${ProjectName}_${Environment}_db"
+        Description: !Sub "Data Catalog for ${ProjectName} in ${Environment} environment."
+        LocationUri: !Sub "s3://${RawDataBucketName}/" # If you want to associate with a default bucket
+
+Outputs:
+  GlueDatabaseName:
+    Description: The name of the AWS Glue Data Catalog Database.
+    Value: !Ref GlueDatabase
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-GlueDatabaseName"
+
+  GlueDatabaseArn:
+    Description: The ARN of the AWS Glue Data Catalog Database.
+    Value: !GetAtt GlueDatabase.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-GlueDatabaseArn"

@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for an AWS Glue Crawler for Raw Data.
+
+Metadata:
+  Project: ChurnSegmentationPySpark
+  Component: RawDataCrawler
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the project.
+    Default: churn-segmentation
+
+  Environment:
+    Type: String
+    Description: Environment (e.g., dev, test, prod).
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  RawDataBucketArn: # Import the ARN of the raw data bucket
+    Type: String
+    Description: ARN of the Raw Data S3 bucket.
+    Default: !ImportValue !Sub "${ProjectName}-${Environment}-RawDataBucketArn"
+
+  GlueDatabaseName: # Import the Name of the Glue Database
+    Type: String
+    Description: Name of the AWS Glue Data Catalog Database.
+    Default: !ImportValue !Sub "${ProjectName}-${Environment}-GlueDatabaseName"
+
+  CrawlerServiceRoleArn: # IAM Role for Glue Crawler (needs S3 read, Glue write)
+    Type: String
+    Description: ARN of the IAM role for the Glue Crawler.
+
+Resources:
+  RawDataCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-RawDataCrawler"
+      Role: !Ref CrawlerServiceRoleArn
+      DatabaseName: !Ref GlueDatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub "${RawDataBucketArn}/" # Crawler target
+      Schedule:
+        ScheduleExpression: ON_DEMAND # Example: "cron(0 0 * * ? *)", Run daily at midnight UTC
+      SchemaChangePolicy:
+        DeleteBehavior: DELETE_FROM_DATABASE # for transient data
+        UpdateBehavior: UPDATE_IN_DATABASE
+      TablePrefix: !Sub "raw_${ProjectName}_" # prefix for tables created by this crawler
+
+Outputs:
+  RawDataCrawlerName:
+    Description: The name of the AWS Glue Raw Data Crawler.
+    Value: !Ref RawDataCrawler
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-RawDataCrawlerName"
