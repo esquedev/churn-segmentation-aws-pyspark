@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM roles and policies for Churn Segmentation Pipeline
+
+Resources:
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: churn-segmentation-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                  - codecommit:*
+                  - codebuild:*
+                Resource: "*"
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: churn-segmentation-codebuild-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                  - logs:*
+                  - codecommit:*
+                Resource: "*"
+
+Outputs:
+  CodePipelineRoleArn:
+    Description: ARN for CodePipeline Role
+    Value: !GetAtt CodePipelineRole.Arn
+    Export:
+      Name: ChurnSegmentation-CodePipelineRoleArn
+
+  CodeBuildRoleArn:
+    Description: ARN for CodeBuild Role
+    Value: !GetAtt CodeBuildRole.Arn
+    Export:
+      Name: ChurnSegmentation-CodeBuildRoleArn

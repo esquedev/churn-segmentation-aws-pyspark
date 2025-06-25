@@ -1,0 +1,17 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 Buckets for CI/CD Artifacts
+
+Resources:
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: churn-segmentation-artifacts
+      VersioningConfiguration:
+        Status: Enabled
+
+Outputs:
+  PipelineArtifactBucketName:
+    Description: Name of the artifact bucket for CI/CD
+    Value: !Ref PipelineArtifactBucket
+    Export:
+      Name: ChurnSegmentation-PipelineArtifactBucket

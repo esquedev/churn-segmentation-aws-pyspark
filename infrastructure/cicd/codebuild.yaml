@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild project for Churn Segmentation Pipeline
+
+Resources:
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: ChurnSegmentationBuild
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infrastructure/cicd/buildspec.yaml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:3.9-1.0
+        Type: LINUX_CONTAINER
+      ServiceRole: !ImportValue ChurnSegmentation-CodeBuildRoleArn
+
+Outputs:
+  CodeBuildProjectName:
+    Description: Name of the CodeBuild project
+    Value: !Ref CodeBuildProject
+    Export:
+      Name: ChurnSegmentation-CodeBuildProjectName
