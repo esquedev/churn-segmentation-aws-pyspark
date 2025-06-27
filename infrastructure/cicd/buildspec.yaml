@@ -10,9 +10,12 @@ phases:
   pre_build:
     commands:
       - echo "Running pre-build steps"
+      - flake8 ../src/ tests/
+      - black --check ../src/ ../tests/
   build:
     commands:
       - echo "Running PySpark job"
+      - pytest --cov=../src/ ../tests
       - python src/data_ingestion/ingest_data.py
   post_build:
     commands:

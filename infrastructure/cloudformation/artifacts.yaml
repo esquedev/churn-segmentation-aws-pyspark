@@ -1,11 +1,53 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: S3 Buckets for CI/CD Artifacts
+Description: S3 Buckets for CI/CD Artifacts and Data Layers
+
+Parameters:
+  ArtifactBucketName:
+    Type: String
+    Default: churn-segmentation-artifacts
+    Description: Name for the artifact S3 bucket
+
+  RawDataBucketName:
+    Type: String
+    Default: churn-segmentation-raw-data
+    Description: Name for the raw data S3 bucket
+
+  StagingDataBucketName:
+    Type: String
+    Default: churn-segmentation-staging-data
+    Description: Name for the staging data S3 bucket
+
+  MasterDataBucketName:
+    Type: String
+    Default: churn-segmentation-master-data
+    Description: Name for the master data S3 bucket
 
 Resources:
   PipelineArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: churn-segmentation-artifacts
+      BucketName: !Ref ArtifactBucketName
+      VersioningConfiguration:
+        Status: Enabled
+
+  RawDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref RawDataBucketName
+      VersioningConfiguration:
+        Status: Enabled
+
+  StagingDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref StagingDataBucketName
+      VersioningConfiguration:
+        Status: Enabled
+
+  MasterDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref MasterDataBucketName
       VersioningConfiguration:
         Status: Enabled
 
@@ -15,3 +57,21 @@ Outputs:
     Value: !Ref PipelineArtifactBucket
     Export:
       Name: ChurnSegmentation-PipelineArtifactBucket
+
+  RawDataBucketName:
+    Description: Name of the raw data bucket
+    Value: !Ref RawDataBucket
+    Export:
+      Name: ChurnSegmentation-RawDataBucket
+
+  StagingDataBucketName:
+    Description: Name of the staging data bucket
+    Value: !Ref StagingDataBucket
+    Export:
+      Name: ChurnSegmentation-StagingDataBucket
+
+  MasterDataBucketName:
+    Description: Name of the master data bucket
+    Value: !Ref MasterDataBucket
+    Export:
+      Name: ChurnSegmentation-MasterDataBucket
