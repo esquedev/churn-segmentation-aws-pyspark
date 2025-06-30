@@ -198,3 +198,6 @@ cython_debug/
 
 # ENV file
 .env
+
+# Data CSV files
+data/*.csv
