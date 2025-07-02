@@ -9,13 +9,14 @@ phases:
       - pip install -r requirements.txt
   pre_build:
     commands:
-      - echo "Running pre-build steps"
-      - flake8 ../src/ tests/
-      - black --check ../src/ ../tests/
+      - echo "Running lint and formatting checks"
+      - flake8 src/ tests/
+      - black --check src/ tests/
   build:
     commands:
+      - echo "Running tests with coverage"
+      - pytest --cov=src --cov-report=xml tests/
       - echo "Running PySpark job"
-      - pytest --cov=../src/ ../tests
       - python src/data_ingestion/ingest_data.py
   post_build:
     commands:
@@ -24,3 +25,4 @@ phases:
 artifacts:
   files:
     - '**/*'
+    - coverage.xml
