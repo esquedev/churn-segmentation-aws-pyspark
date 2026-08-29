@@ -1,4 +1,4 @@
-AWSTemplateFormateVersion: '2010-09-09'
+AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Cloud Formation template for the AWS Glue Data Catalog Database for the Churn
   Segmentation Data Pipeline.
@@ -22,6 +22,11 @@ Parameters:
       - test
       - prod
 
+  RawDataBucketName:
+    Type: String
+    Description: Name of the Raw Data S3 bucket.
+    Default: churn-segmentation-raw-data
+
 Resources:
   GlueDatabase:
     Type: AWS::Glue::Database
@@ -30,7 +35,7 @@ Resources:
       DatabaseInput:
         Name : !Sub "${ProjectName}_${Environment}_db"
         Description: !Sub "Data Catalog for ${ProjectName} in ${Environment} environment."
-        LocationUri: !Sub "s3://${RawDataBucketName}/" # If you want to associate with a default bucket
+        LocationUri: !Sub "s3://${RawDataBucketName}/"
 
 Outputs:
   GlueDatabaseName:

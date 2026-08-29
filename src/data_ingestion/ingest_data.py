@@ -1,4 +1,4 @@
-from utils.spark_factory import SparkSessionFactory
+from ..utils.spark_factory import SparkSessionFactory
 from .s3_datasource import S3DataSource
 
 def main():

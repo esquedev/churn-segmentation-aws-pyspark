@@ -1,10 +1,10 @@
 import logging
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from src.data_ingestion.datasource import DataSource
-from src.utils.secrets import SecretProvider, get_secret_provider
-from src.utils.config.factory import get_config_provider
-from src.utils.config.base import ConfigProvider
+from .datasource import DataSource
+from ..utils.secrets import SecretProvider, get_secret_provider
+from ..utils.config.factory import get_config_provider
+from ..utils.config.base import ConfigProvider
 
 logger = logging.getLogger(__name__)
 
