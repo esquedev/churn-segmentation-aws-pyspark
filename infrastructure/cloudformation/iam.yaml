@@ -1,11 +1,29 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: IAM roles and policies for Churn Segmentation Pipeline
+Description: >
+  IAM roles and policies for Churn Segmentation Pipeline.
+  Implements least-privilege access with specific resource ARNs.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: churn-segmentation
+    Description: Project name for resource naming
+  
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment environment
 
 Resources:
+  # CodePipeline Role - Orchestrates CI/CD workflow
   CodePipelineRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: churn-segmentation-codepipeline-role
+      RoleName: !Sub "${ProjectName}-${Environment}-codepipeline-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -18,17 +36,37 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # S3 artifacts access
               - Effect: Allow
                 Action:
-                  - s3:*
-                  - codecommit:*
-                  - codebuild:*
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+                Resource: 
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-artifacts/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-artifacts"
+              # GitHub integration
+              - Effect: Allow
+                Action:
+                  - codestarconnections:UseConnection
                 Resource: "*"
+              # CodeBuild access
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:BatchGetReports
+                  - codebuild:StartBuild
+                Resource: !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${ProjectName}-*"
 
+  # CodeBuild Role - Runs tests and builds artifacts
   CodeBuildRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: churn-segmentation-codebuild-role
+      RoleName: !Sub "${ProjectName}-${Environment}-codebuild-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -41,11 +79,169 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # CloudWatch Logs
               - Effect: Allow
                 Action:
-                  - s3:*
-                  - logs:*
-                  - codecommit:*
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}-*"
+              # S3 artifacts
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${ProjectName}-${Environment}-artifacts/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-artifacts"
+              # S3 data buckets (read-only for testing)
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*/*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-staging-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-staging-*/*"
+              # ECR access for pulling images (optional, for containerized builds)
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+
+  # Glue Crawler Role - Catalogs data in S3
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-glue-crawler-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: GlueCrawlerS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Read raw data for cataloging
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*/*"
+
+  # EMR Cluster Instance Role - Runs Spark jobs
+  EMRClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-emr-cluster-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role
+      Policies:
+        - PolicyName: EMRClusterS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Read raw data
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-raw-*/*"
+              # Write to staging and master data
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-staging-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-staging-*/*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-master-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-master-*/*"
+              # CloudWatch Logs for job monitoring
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/emr/*"
+
+  # EMR Cluster Instance Profile
+  EMRClusterInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EMRClusterRole
+
+  # EMR Service Role - Manages EMR cluster lifecycle
+  EMRServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-emr-service-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: elasticmapreduce.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceRole
+
+  # Lambda Execution Role (for future workflow orchestration)
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-lambda-execution-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaDataAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-*/*"
+              # EMR cluster management
+              - Effect: Allow
+                Action:
+                  - elasticmapreduce:AddJobFlowSteps
+                  - elasticmapreduce:DescribeCluster
+                  - elasticmapreduce:ListClusters
                 Resource: "*"
 
 Outputs:
@@ -53,10 +249,40 @@ Outputs:
     Description: ARN for CodePipeline Role
     Value: !GetAtt CodePipelineRole.Arn
     Export:
-      Name: ChurnSegmentation-CodePipelineRoleArn
+      Name: !Sub "${ProjectName}-${Environment}-CodePipelineRoleArn"
 
   CodeBuildRoleArn:
     Description: ARN for CodeBuild Role
     Value: !GetAtt CodeBuildRole.Arn
     Export:
-      Name: ChurnSegmentation-CodeBuildRoleArn
+      Name: !Sub "${ProjectName}-${Environment}-CodeBuildRoleArn"
+
+  GlueCrawlerRoleArn:
+    Description: ARN for Glue Crawler Role
+    Value: !GetAtt GlueCrawlerRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-GlueCrawlerRoleArn"
+
+  EMRClusterRoleArn:
+    Description: ARN of the EMR cluster IAM role
+    Value: !GetAtt EMRClusterRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-EMRClusterRoleArn"
+
+  EMRServiceRoleArn:
+    Description: ARN of the EMR service IAM role
+    Value: !GetAtt EMRServiceRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-EMRServiceRoleArn"
+
+  EMRInstanceProfileArn:
+    Description: ARN of the EMR instance profile
+    Value: !GetAtt EMRClusterInstanceProfile.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-EMRInstanceProfileArn"
+
+  LambdaExecutionRoleArn:
+    Description: ARN for Lambda Execution Role
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-LambdaExecutionRoleArn"
