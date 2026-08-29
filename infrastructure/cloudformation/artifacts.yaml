@@ -1,77 +1,365 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: S3 Buckets for CI/CD Artifacts and Data Layers
+Description: >
+  S3 Buckets for CI/CD Artifacts and Data Layers.
+  Implements security best practices: encryption, versioning, 
+  lifecycle policies, access blocking, and comprehensive logging.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Configuration"
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: "Bucket Configuration"
+        Parameters:
+          - EnableAccessLogging
+          - BucketNameSuffix
 
 Parameters:
-  ArtifactBucketName:
+  ProjectName:
     Type: String
-    Default: churn-segmentation-artifacts
-    Description: Name for the artifact S3 bucket
+    Default: churn-segmentation
+    Description: Project name for resource naming
 
-  RawDataBucketName:
+  Environment:
     Type: String
-    Default: churn-segmentation-raw-data
-    Description: Name for the raw data S3 bucket
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment environment (dev/test/prod)
 
-  StagingDataBucketName:
+  BucketNameSuffix:
     Type: String
-    Default: churn-segmentation-staging-data
-    Description: Name for the staging data S3 bucket
+    Default: !Select [2, !Split ['-', !Select [0, !Split ['/', !Ref "AWS::StackId"]]]]
+    Description: >
+      Unique suffix for S3 bucket names to ensure global uniqueness.
+      Auto-generated from stack ID if not provided.
 
-  MasterDataBucketName:
+  EnableAccessLogging:
     Type: String
-    Default: churn-segmentation-master-data
-    Description: Name for the master data S3 bucket
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable S3 access logging to a dedicated logs bucket
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  EnableLogging: !Equals [!Ref EnableAccessLogging, 'true']
 
 Resources:
+  # ============================================================================
+  # S3 Access Logs Bucket - Centralized logging for all data buckets
+  # ============================================================================
+  S3AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    Condition: EnableLogging
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-logs-${BucketNameSuffix}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: "S3 Access Logs"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ============================================================================
+  # Pipeline Artifact Bucket - Stores CI/CD build artifacts
+  # ============================================================================
   PipelineArtifactBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
-      BucketName: !Ref ArtifactBucketName
+      BucketName: !Sub "${ProjectName}-${Environment}-artifacts-${BucketNameSuffix}"
+
+      # Encryption at rest - AES256 (AWS-managed keys)
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      # Versioning for artifact recovery and rollback capability
       VersioningConfiguration:
         Status: Enabled
 
+      # Block all public access - Critical security control
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      # Access logging for audit trails
+      LoggingConfiguration:
+        !If
+          - EnableLogging
+          - DestinationBucketName: !Ref S3AccessLogsBucket
+            LogFilePrefix: "artifacts/"
+          - !Ref AWS::NoValue
+
+      # Lifecycle: Keep old artifact versions for 30 days, then delete
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifactVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: "Artifacts"
+        - Key: Criticality
+          Value: "High"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ============================================================================
+  # Raw Data Bucket - Immutable source of truth for ingested data
+  # ============================================================================
   RawDataBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
-      BucketName: !Ref RawDataBucketName
+      BucketName: !Sub "${ProjectName}-${Environment}-raw-${BucketNameSuffix}"
+
+      # Encryption at rest
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      # Versioning to maintain immutable data history
       VersioningConfiguration:
         Status: Enabled
 
+      # Block all public access
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      # Access logging
+      LoggingConfiguration:
+        !If
+          - EnableLogging
+          - DestinationBucketName: !Ref S3AccessLogsBucket
+            LogFilePrefix: "raw-data/"
+          - !Ref AWS::NoValue
+
+      # Lifecycle: Keep noncurrent versions for reference, but retain all current objects
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldRawDataVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 180  # Keep old versions 6 months for recovery
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: "Raw"
+        - Key: Immutable
+          Value: "true"
+        - Key: Criticality
+          Value: "Critical"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ============================================================================
+  # Staging Data Bucket - Temporary working area for intermediate data
+  # ============================================================================
   StagingDataBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
-      BucketName: !Ref StagingDataBucketName
+      BucketName: !Sub "${ProjectName}-${Environment}-staging-${BucketNameSuffix}"
+
+      # Encryption at rest
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      # Versioning for temporary data tracking
       VersioningConfiguration:
         Status: Enabled
 
+      # Block all public access
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      # Access logging
+      LoggingConfiguration:
+        !If
+          - EnableLogging
+          - DestinationBucketName: !Ref S3AccessLogsBucket
+            LogFilePrefix: "staging-data/"
+          - !Ref AWS::NoValue
+
+      # Lifecycle: Delete staging data after 5 days to optimize costs
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldStagingData
+            Status: Enabled
+            ExpirationInDays: 5  # Auto-delete current objects after 5 days
+            NoncurrentVersionExpirationInDays: 2  # Delete old versions after 2 days
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1  # Clean up incomplete uploads after 1 day
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: "Staging"
+        - Key: Retention
+          Value: "5-days"
+        - Key: CostOptimization
+          Value: "true"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ============================================================================
+  # Master Data Bucket - Reference/lookup tables and static dimensions
+  # ============================================================================
   MasterDataBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
-      BucketName: !Ref MasterDataBucketName
+      BucketName: !Sub "${ProjectName}-${Environment}-master-${BucketNameSuffix}"
+
+      # Encryption at rest
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      # Versioning for master data change tracking
       VersioningConfiguration:
         Status: Enabled
 
+      # Block all public access
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      # Access logging
+      LoggingConfiguration:
+        !If
+          - EnableLogging
+          - DestinationBucketName: !Ref S3AccessLogsBucket
+            LogFilePrefix: "master-data/"
+          - !Ref AWS::NoValue
+
+      # Lifecycle: Keep master data indefinitely, but clean up old versions
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 90  # Keep old versions for 90 days
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataTier
+          Value: "Master"
+        - Key: Type
+          Value: "Reference/Lookup"
+        - Key: Criticality
+          Value: "High"
+        - Key: ManagedBy
+          Value: CloudFormation
+
 Outputs:
+  S3AccessLogsBucketName:
+    Condition: EnableLogging
+    Description: S3 bucket storing access logs for audit trails
+    Value: !Ref S3AccessLogsBucket
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-S3AccessLogsBucket"
+
   PipelineArtifactBucketName:
-    Description: Name of the artifact bucket for CI/CD
+    Description: Name of the artifact bucket for CI/CD pipeline
     Value: !Ref PipelineArtifactBucket
     Export:
-      Name: ChurnSegmentation-PipelineArtifactBucket
+      Name: !Sub "${ProjectName}-${Environment}-PipelineArtifactBucket"
+
+  PipelineArtifactBucketArn:
+    Description: ARN of the artifact bucket (for IAM policies)
+    Value: !GetAtt PipelineArtifactBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-PipelineArtifactBucketArn"
 
   RawDataBucketName:
-    Description: Name of the raw data bucket
+    Description: Name of the raw data bucket (immutable source of truth)
     Value: !Ref RawDataBucket
     Export:
-      Name: ChurnSegmentation-RawDataBucket
+      Name: !Sub "${ProjectName}-${Environment}-RawDataBucket"
+
+  RawDataBucketArn:
+    Description: ARN of the raw data bucket (for IAM policies)
+    Value: !GetAtt RawDataBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-RawDataBucketArn"
 
   StagingDataBucketName:
-    Description: Name of the staging data bucket
+    Description: Name of the staging data bucket (temporary working area)
     Value: !Ref StagingDataBucket
     Export:
-      Name: ChurnSegmentation-StagingDataBucket
+      Name: !Sub "${ProjectName}-${Environment}-StagingDataBucket"
+
+  StagingDataBucketArn:
+    Description: ARN of the staging data bucket (for IAM policies)
+    Value: !GetAtt StagingDataBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-StagingDataBucketArn"
 
   MasterDataBucketName:
-    Description: Name of the master data bucket
+    Description: Name of the master data bucket (reference/lookup tables)
     Value: !Ref MasterDataBucket
     Export:
-      Name: ChurnSegmentation-MasterDataBucket
+      Name: !Sub "${ProjectName}-${Environment}-MasterDataBucket"
+
+  MasterDataBucketArn:
+    Description: ARN of the master data bucket (for IAM policies)
+    Value: !GetAtt MasterDataBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-MasterDataBucketArn"
